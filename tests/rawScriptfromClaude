@@ -1,0 +1,449 @@
+/**
+ * OrangeHRM Login Automation Script
+ * =================================
+ * A comprehensive QA automation script using Playwright with JavaScript
+ * for testing the OrangeHRM demo login functionality.
+ * 
+ * Requirements:
+ * - Node.js 14+
+ * - Playwright
+ * 
+ * Installation:
+ * npm init -y
+ * npm install @playwright/test
+ * npx playwright install
+ * 
+ * Usage:
+ * node orangehrm-login-test.js (standalone)
+ * npx playwright test (with test runner)
+ */
+
+const { chromium, firefox, webkit } = require('playwright');
+const { test, expect } = require('@playwright/test');
+
+class OrangeHRMLoginTest {
+    constructor() {
+        this.baseUrl = 'https://opensource-demo.orangehrmlive.com/web/index.php/auth/login';
+        this.username = 'Admin';
+        this.password = 'admin123';
+        this.browser = null;
+        this.context = null;
+        this.page = null;
+    }
+
+    /**
+     * Initialize browser and page
+     */
+    async setupBrowser(browserType = 'chromium', headless = false) {
+        try {
+            console.log('🚀 Setting up browser...');
+            
+            const browsers = { chromium, firefox, webkit };
+            this.browser = await browsers[browserType].launch({ 
+                headless,
+                slowMo: 100 // Add slight delay for better visibility
+            });
+            
+            this.context = await this.browser.newContext({
+                viewport: { width: 1920, height: 1080 },
+                ignoreHTTPSErrors: true
+            });
+            
+            this.page = await this.context.newPage();
+            
+            // Enable request/response logging for debugging
+            this.page.on('console', msg => {
+                if (msg.type() === 'error') {
+                    console.log('❌ Browser console error:', msg.text());
+                }
+            });
+            
+            console.log('✅ Browser setup completed successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to setup browser:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Navigate to the OrangeHRM login page
+     */
+    async navigateToLoginPage() {
+        try {
+            console.log(`🌐 Navigating to: ${this.baseUrl}`);
+            
+            await this.page.goto(this.baseUrl, { 
+                waitUntil: 'networkidle',
+                timeout: 30000 
+            });
+            
+            // Wait for the page to be fully loaded
+            await this.page.waitForLoadState('domcontentloaded');
+            
+            console.log('✅ Successfully navigated to login page');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to navigate to login page:', error.message);
+            await this.takeScreenshot('navigation-failed');
+            return false;
+        }
+    }
+
+    /**
+     * Wait for login form elements to be visible
+     */
+    async waitForLoginForm() {
+        try {
+            console.log('⏳ Waiting for login form to load...');
+            
+            // Wait for username field
+            const usernameField = this.page.locator('input[name="username"]');
+            await usernameField.waitFor({ state: 'visible', timeout: 10000 });
+            
+            // Wait for password field
+            const passwordField = this.page.locator('input[name="password"]');
+            await passwordField.waitFor({ state: 'visible', timeout: 10000 });
+            
+            // Wait for login button
+            const loginButton = this.page.locator('button[type="submit"]');
+            await loginButton.waitFor({ state: 'visible', timeout: 10000 });
+            
+            console.log('✅ Login form elements are now visible');
+            return { usernameField, passwordField, loginButton };
+        } catch (error) {
+            console.error('❌ Login form elements not found:', error.message);
+            await this.takeScreenshot('login-form-not-found');
+            return null;
+        }
+    }
+
+    /**
+     * Perform login with given credentials
+     */
+    async performLogin(username = null, password = null) {
+        const loginUsername = username || this.username;
+        const loginPassword = password || this.password;
+        
+        try {
+            console.log(`🔐 Attempting login with username: ${loginUsername}`);
+            
+            const formElements = await this.waitForLoginForm();
+            if (!formElements) {
+                return false;
+            }
+            
+            const { usernameField, passwordField, loginButton } = formElements;
+            
+            // Clear and enter username
+            await usernameField.clear();
+            await usernameField.fill(loginUsername);
+            console.log('✅ Username entered');
+            
+            // Clear and enter password
+            await passwordField.clear();
+            await passwordField.fill(loginPassword);
+            console.log('✅ Password entered');
+            
+            // Take screenshot before clicking login
+            await this.takeScreenshot('before-login');
+            
+            // Click login button
+            await loginButton.click();
+            console.log('✅ Login button clicked');
+            
+            // Wait a moment for the page to process
+            await this.page.waitForTimeout(2000);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error during login process:', error.message);
+            await this.takeScreenshot('login-error');
+            return false;
+        }
+    }
+
+    /**
+     * Verify successful login by checking for dashboard elements
+     */
+    async verifySuccessfulLogin() {
+        try {
+            console.log('🔍 Verifying successful login...');
+            
+            // Multiple selectors to check for successful login
+            const successSelectors = [
+                '.oxd-topbar-header-userarea',
+                '.oxd-main-menu',
+                '.oxd-userdropdown-name',
+                'h6:has-text("Dashboard")',
+                '[data-v-f5c763eb]' // OrangeHRM specific class
+            ];
+            
+            let loginSuccessful = false;
+            
+            for (const selector of successSelectors) {
+                try {
+                    await this.page.waitForSelector(selector, { 
+                        state: 'visible', 
+                        timeout: 15000 
+                    });
+                    loginSuccessful = true;
+                    console.log(`✅ Found success indicator: ${selector}`);
+                    break;
+                } catch {
+                    // Continue to next selector
+                }
+            }
+            
+            if (loginSuccessful) {
+                const currentUrl = this.page.url();
+                console.log(`✅ Login successful! Current URL: ${currentUrl}`);
+                await this.takeScreenshot('login-successful');
+                return true;
+            } else {
+                console.log('❌ Login verification failed - dashboard not found');
+                await this.takeScreenshot('login-verification-failed');
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Error verifying login:', error.message);
+            await this.takeScreenshot('verification-error');
+            return false;
+        }
+    }
+
+    /**
+     * Verify failed login by checking for error messages
+     */
+    async verifyFailedLogin() {
+        try {
+            console.log('🔍 Verifying failed login...');
+            
+            // Wait for potential error messages
+            await this.page.waitForTimeout(3000);
+            
+            const errorSelectors = [
+                '.oxd-alert-content-text',
+                '.oxd-input-field-error-message',
+                '.oxd-text--toast-message',
+                'p:has-text("Invalid credentials")',
+                '[role="alert"]'
+            ];
+            
+            for (const selector of errorSelectors) {
+                try {
+                    const errorElement = await this.page.waitForSelector(selector, { 
+                        state: 'visible', 
+                        timeout: 5000 
+                    });
+                    
+                    if (errorElement) {
+                        const errorText = await errorElement.textContent();
+                        console.log(`✅ Login failed as expected. Error: ${errorText}`);
+                        await this.takeScreenshot('login-failed-verified');
+                        return true;
+                    }
+                } catch {
+                    // Continue to next selector
+                }
+            }
+            
+            // Check if we're still on login page (another indication of failed login)
+            const currentUrl = this.page.url();
+            if (currentUrl.includes('auth/login')) {
+                console.log('✅ Login failed as expected - still on login page');
+                await this.takeScreenshot('still-on-login-page');
+                return true;
+            }
+            
+            console.log('❌ No error indicators found');
+            await this.takeScreenshot('no-error-found');
+            return false;
+            
+        } catch (error) {
+            console.error('❌ Error verifying failed login:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Take screenshot for debugging
+     */
+    async takeScreenshot(name) {
+        try {
+            const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+            const filename = `screenshots/${name}-${timestamp}.png`;
+            await this.page.screenshot({ path: filename, fullPage: true });
+            console.log(`📸 Screenshot saved: ${filename}`);
+        } catch (error) {
+            console.error('❌ Failed to take screenshot:', error.message);
+        }
+    }
+
+    /**
+     * Get page title
+     */
+    async getPageTitle() {
+        try {
+            return await this.page.title();
+        } catch (error) {
+            console.error('❌ Failed to get page title:', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Clean up resources
+     */
+    async cleanup() {
+        try {
+            if (this.context) {
+                await this.context.close();
+            }
+            if (this.browser) {
+                await this.browser.close();
+            }
+            console.log('✅ Browser cleanup completed');
+        } catch (error) {
+            console.error('❌ Error during cleanup:', error.message);
+        }
+    }
+}
+
+// Playwright Test Cases
+test.describe('OrangeHRM Login Tests', () => {
+    let loginTest;
+    
+    test.beforeEach(async () => {
+        loginTest = new OrangeHRMLoginTest();
+        await loginTest.setupBrowser('chromium', false);
+    });
+    
+    test.afterEach(async () => {
+        await loginTest.cleanup();
+    });
+
+    test('should login successfully with valid credentials', async () => {
+        console.log('\n=== TEST: Successful Login ===');
+        
+        // Navigate to login page
+        const navigationSuccess = await loginTest.navigateToLoginPage();
+        expect(navigationSuccess).toBeTruthy();
+        
+        // Verify page title
+        const title = await loginTest.getPageTitle();
+        expect(title).toContain('OrangeHRM');
+        
+        // Perform login
+        const loginSuccess = await loginTest.performLogin();
+        expect(loginSuccess).toBeTruthy();
+        
+        // Verify successful login
+        const verificationSuccess = await loginTest.verifySuccessfulLogin();
+        expect(verificationSuccess).toBeTruthy();
+        
+        console.log('✅ TEST PASSED: Successful login completed');
+    });
+
+    test('should fail login with invalid username', async () => {
+        console.log('\n=== TEST: Invalid Username ===');
+        
+        await loginTest.navigateToLoginPage();
+        await loginTest.performLogin('InvalidUser', 'admin123');
+        
+        const failureVerified = await loginTest.verifyFailedLogin();
+        expect(failureVerified).toBeTruthy();
+        
+        console.log('✅ TEST PASSED: Invalid username test completed');
+    });
+
+    test('should fail login with invalid password', async () => {
+        console.log('\n=== TEST: Invalid Password ===');
+        
+        await loginTest.navigateToLoginPage();
+        await loginTest.performLogin('Admin', 'wrongpassword');
+        
+        const failureVerified = await loginTest.verifyFailedLogin();
+        expect(failureVerified).toBeTruthy();
+        
+        console.log('✅ TEST PASSED: Invalid password test completed');
+    });
+
+    test('should handle empty credentials', async () => {
+        console.log('\n=== TEST: Empty Credentials ===');
+        
+        await loginTest.navigateToLoginPage();
+        await loginTest.performLogin('', '');
+        
+        // For empty credentials, we expect to still be on login page
+        const currentUrl = loginTest.page.url();
+        expect(currentUrl).toContain('auth/login');
+        
+        console.log('✅ TEST PASSED: Empty credentials test completed');
+    });
+});
+
+// Standalone execution function
+async function runStandaloneTests() {
+    console.log('OrangeHRM Login Automation with Playwright');
+    console.log('=' .repeat(50));
+    
+    const fs = require('fs').promises;
+    
+    // Create screenshots directory
+    try {
+        await fs.mkdir('screenshots', { recursive: true });
+    } catch (error) {
+        // Directory might already exist
+    }
+    
+    const loginTest = new OrangeHRMLoginTest();
+    
+    try {
+        // Setup browser
+        await loginTest.setupBrowser('chromium', false);
+        
+        // Test 1: Successful Login
+        console.log('\n1. Testing successful login...');
+        if (await loginTest.navigateToLoginPage()) {
+            if (await loginTest.performLogin()) {
+                if (await loginTest.verifySuccessfulLogin()) {
+                    console.log('✅ Successful login test PASSED');
+                } else {
+                    console.log('❌ Successful login test FAILED');
+                }
+            }
+        }
+        
+        // Wait between tests
+        await loginTest.page.waitForTimeout(2000);
+        
+        // Test 2: Invalid credentials
+        console.log('\n2. Testing invalid credentials...');
+        await loginTest.navigateToLoginPage();
+        await loginTest.performLogin('InvalidUser', 'wrongpass');
+        
+        if (await loginTest.verifyFailedLogin()) {
+            console.log('✅ Invalid credentials test PASSED');
+        } else {
+            console.log('❌ Invalid credentials test FAILED');
+        }
+        
+    } catch (error) {
+        console.error('❌ Test execution failed:', error.message);
+        await loginTest.takeScreenshot('test-execution-failed');
+    } finally {
+        await loginTest.cleanup();
+        console.log('\n' + '='.repeat(50));
+        console.log('Test execution completed!');
+    }
+}
+
+// Export for module usage
+module.exports = { OrangeHRMLoginTest };
+
+// Run standalone tests if this file is executed directly
+if (require.main === module) {
+    runStandaloneTests().catch(console.error);
+}
