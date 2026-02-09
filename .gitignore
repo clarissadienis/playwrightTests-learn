@@ -1,0 +1,16 @@
+# Node modules
+node_modules/
+
+# Playwright test results and screenshots
+test-results/
+screenshots/
+videos/
+
+# Environment files (if you store secrets)
+.env
+
+# Logs
+*.log
+
+# VS Code settings (optional)
+.vscode/
